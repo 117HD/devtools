@@ -830,7 +830,7 @@ public class ModelExporter extends Overlay implements MouseListener, MouseWheelL
 				materialPropertyPointers.add(memAddress0(propertyBuffer));
 
 				propertyKey = AIString.malloc(materialStack).data(materialStack.UTF8(AI_MATKEY_GLTF_ALPHAMODE));
-				var alphaMode = AIString.malloc(materialStack).data(materialStack.UTF8("MASK"));
+				var alphaMode = AIString.malloc(materialStack).data(materialStack.UTF8("BLEND"));
 				propertyBuffer = materialStack.malloc(AIMaterialProperty.ALIGNOF, AIMaterialProperty.SIZEOF)
 					// property name aiString
 					.put(memByteBuffer(propertyKey))
@@ -1788,6 +1788,9 @@ public class ModelExporter extends Overlay implements MouseListener, MouseWheelL
 				} else if (r instanceof DynamicObject) {
 					// Match SceneUploader's object model, including its baked orientation.
 					model = ((DynamicObject) r).getModelZbuf();
+					// Animated objects may not provide a Z-buffer model, but still have a drawable model.
+					if (model == null)
+						model = r.getModel();
 				} else {
 					model = r.getModel();
 				}
