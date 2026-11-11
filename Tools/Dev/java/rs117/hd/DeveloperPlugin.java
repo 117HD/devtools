@@ -1,15 +1,18 @@
 package rs117.hd;
 
 import com.google.inject.Provides;
+import javax.annotation.Nullable;
 import javax.inject.Inject;
-import javax.inject.Provider;
 import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
+import net.runelite.client.eventbus.Subscribe;
+import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.plugins.PluginManager;
+import rs117.hd.dev.sceneloader.SceneLoader;
 import rs117.hd.model.ModelExporter;
 import rs117.hd.model.ModelImporter;
 import rs117.hd.utils.Props;
@@ -34,8 +37,15 @@ public class DeveloperPlugin extends Plugin {
 	@Inject
 	private PluginManager pluginManager;
 
+	@Inject
+	private DeveloperConfig config;
+
 	private ModelExporter modelExporter;
 	private ModelImporter modelImporter;
+
+	// From 117 HD's injector, so it works with the running 117 HD's renderer, scene & managers
+	@Nullable
+	private volatile SceneLoader sceneLoader;
 
 	@Provides
 	DeveloperConfig provideConfig(ConfigManager configManager) {
@@ -57,12 +67,22 @@ public class DeveloperPlugin extends Plugin {
 			modelExporter = injector.getInstance(ModelExporter.class);
 			modelImporter = injector.getInstance(ModelImporter.class);
 
+			var loader = injector.getInstance(SceneLoader.class);
+			sceneLoader = loader;
+			if (config.cacheScene())
+				loader.startUp();
+
 			return true;
 		});
 	}
 
 	@Override
 	protected void shutDown() {
+		var loader = sceneLoader;
+		sceneLoader = null;
+		if (loader != null)
+			loader.shutDown();
+
 		clientThread.invoke(() -> {
 			if (modelImporter != null)
 				modelImporter.close();
@@ -71,5 +91,22 @@ public class DeveloperPlugin extends Plugin {
 				modelExporter.close();
 			modelExporter = null;
 		});
+	}
+
+	@Subscribe
+	public void onConfigChanged(ConfigChanged event) {
+		if (!event.getGroup().equals(DeveloperConfig.CONFIG_GROUP))
+			return;
+
+		if (event.getKey().equals(DeveloperConfig.KEY_CACHE_SCENE)) {
+			var loader = sceneLoader;
+			if (loader == null)
+				return;
+			if (config.cacheScene()) {
+				loader.startUp();
+			} else {
+				loader.shutDown();
+			}
+		}
 	}
 }

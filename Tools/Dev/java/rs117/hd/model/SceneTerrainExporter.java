@@ -1,5 +1,7 @@
 package rs117.hd.model;
 
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
 import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Map;
@@ -39,12 +41,16 @@ final class SceneTerrainExporter {
 		boolean complete = false;
 		try {
 			// Keep these development-only entry points out of the production renderer's public API.
-			Method paintUpload = LegacySceneUploader.class.getDeclaredMethod("upload",
+			// Bound MethodHandles avoid the Object[] boxing that Method.invoke would pay once per tile.
+			Method paintUploadMethod = LegacySceneUploader.class.getDeclaredMethod("upload",
 				LegacySceneContext.class, Tile.class, int[].class, TileOverride.class, SceneTilePaint.class);
-			Method modelUpload = LegacySceneUploader.class.getDeclaredMethod("upload",
+			Method modelUploadMethod = LegacySceneUploader.class.getDeclaredMethod("upload",
 				LegacySceneContext.class, Tile.class, int[].class, SceneTileModel.class);
-			paintUpload.setAccessible(true);
-			modelUpload.setAccessible(true);
+			paintUploadMethod.setAccessible(true);
+			modelUploadMethod.setAccessible(true);
+			var lookup = MethodHandles.privateLookupIn(LegacySceneUploader.class, MethodHandles.lookup());
+			MethodHandle paintUpload = lookup.unreflect(paintUploadMethod).bindTo(uploader);
+			MethodHandle modelUpload = lookup.unreflect(modelUploadMethod).bindTo(uploader);
 			for (var entry : tiles.entrySet()) {
 				var view = entry.getKey();
 				var context = new LegacySceneContext(client, view.getScene(), current.expandedMapLoadingChunks, null);
@@ -69,10 +75,14 @@ final class SceneTerrainExporter {
 						context.stagingBufferUvs.clear();
 						int[] worldPos = context.localToWorld(tile.getLocalLocation(), tile.getPlane());
 						var override = tileOverrideManager.getOverride(context, tile, worldPos);
-						if (tile.getSceneTilePaint() != null || override.forced)
-							paintUpload.invoke(uploader, context, tile, worldPos, override, tile.getSceneTilePaint());
-						if (tile.getSceneTileModel() != null)
-							modelUpload.invoke(uploader, context, tile, worldPos, tile.getSceneTileModel());
+						try {
+							if (tile.getSceneTilePaint() != null || override.forced)
+								paintUpload.invokeExact(context, tile, worldPos, override, tile.getSceneTilePaint());
+							if (tile.getSceneTileModel() != null)
+								modelUpload.invokeExact(context, tile, worldPos, tile.getSceneTileModel());
+						} catch (Throwable ex) {
+							throw new IllegalStateException("Unable to generate exported terrain", ex);
+						}
 
 						int size = context.stagingBufferVertices.position();
 						output.stagingBufferVertices.ensureCapacity(size);

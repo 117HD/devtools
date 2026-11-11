@@ -14,6 +14,7 @@ import java.awt.image.AffineTransformOp;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
@@ -28,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
 import javax.inject.Inject;
@@ -455,6 +457,7 @@ public class ModelExporter extends Overlay implements MouseListener, MouseWheelL
 			var nodes = new ArrayList<AINode>();
 			var materialList = new ArrayList<Material>();
 			var waterMaterials = new HashMap<WaterType, Material>();
+			var waterMaterialSet = Collections.newSetFromMap(new IdentityHashMap<Material, Boolean>());
 			var textureScales = new IdentityHashMap<Material, float[]>();
 			var materialIndices = new IdentityHashMap<Material, Integer>();
 			float[][] hslColors = new float[65536][];
@@ -538,6 +541,7 @@ public class ModelExporter extends Overlay implements MouseListener, MouseWheelL
 							material = waterMaterials.computeIfAbsent(water, type -> new Material()
 								.name("117HD_Water_" + type.name)
 								.normalMap((Material) waterProperty(type, "normalMap")));
+							waterMaterialSet.add(material);
 						}
 					}
 					faceMaterials[face] = material;
@@ -557,7 +561,7 @@ public class ModelExporter extends Overlay implements MouseListener, MouseWheelL
 
 					int materialData = 0;
 					Material materialEntry = faceMaterials[face];
-					boolean waterSurface = waterMaterials.containsValue(materialEntry);
+					boolean waterSurface = waterMaterialSet.contains(materialEntry);
 					if (numUvs > 0) {
 						materialData = Float.floatToRawIntBits(sceneContext.stagingBufferUvs.getBuffer().get(faceUvOffset * 4 + 3));
 					}
@@ -778,7 +782,7 @@ public class ModelExporter extends Overlay implements MouseListener, MouseWheelL
 				}
 				// Keep materials already assigned to exported geometry, even if also used as a map.
 				for (var material : MaterialManager.MATERIALS)
-					if (!textureMaps.contains(material) && !materialList.contains(material))
+					if (!textureMaps.contains(material) && !materialIndices.containsKey(material))
 						materialList.add(material);
 			}
 
@@ -793,6 +797,7 @@ public class ModelExporter extends Overlay implements MouseListener, MouseWheelL
 			var materialStack = MemoryStack.create(materialStorage);
 			var materialPointers = materialStack.callocPointer(materialList.size());
 			var expandedMaterials = new ArrayList<Material>();
+			var expandedMaterialIndices = new IdentityHashMap<Material, Integer>();
 			for (var material : materialList) {
 				var aiMaterial = AIMaterial.calloc(materialStack);
 				materialPointers.put(aiMaterial);
@@ -860,10 +865,11 @@ public class ModelExporter extends Overlay implements MouseListener, MouseWheelL
 					if (texture.textureLayer < 0)
 						continue;
 
-					int index = expandedMaterials.indexOf(texture);
-					if (index == -1) {
+					Integer index = expandedMaterialIndices.get(texture);
+					if (index == null) {
 						index = expandedMaterials.size();
 						expandedMaterials.add(texture);
+						expandedMaterialIndices.put(texture, index);
 					}
 					int type = textureTypes[i];
 
@@ -1176,11 +1182,26 @@ public class ModelExporter extends Overlay implements MouseListener, MouseWheelL
 		}
 	}
 
+	// Field lookups are cached since these accessors are called per-material/per-property on every export.
+	private static final Map<String, Field> READ_FIELD_CACHE = new ConcurrentHashMap<>();
+	private static final Map<String, Field> MATERIAL_FIELD_CACHE = new ConcurrentHashMap<>();
+	private static final Map<String, Field> WATER_FIELD_CACHE = new ConcurrentHashMap<>();
+
+	private static Field cachedField(Map<String, Field> cache, Class<?> clazz, String fieldName, String cacheKey) throws ReflectiveOperationException {
+		var field = cache.get(cacheKey);
+		if (field == null) {
+			field = clazz.getDeclaredField(fieldName);
+			field.setAccessible(true);
+			cache.put(cacheKey, field);
+		}
+		return field;
+	}
+
 	// This development-only exporter reads authored material data without widening the production API.
 	private static Object readField(Object object, String name) {
 		try {
-			var field = object.getClass().getDeclaredField(name);
-			field.setAccessible(true);
+			var clazz = object.getClass();
+			var field = cachedField(READ_FIELD_CACHE, clazz, name, clazz.getName() + "#" + name);
 			return field.get(object);
 		} catch (ReflectiveOperationException ex) {
 			throw new IllegalStateException("Unable to read " + name, ex);
@@ -1189,9 +1210,7 @@ public class ModelExporter extends Overlay implements MouseListener, MouseWheelL
 
 	static Object materialProperty(Material material, String name) {
 		try {
-			var field = Material.class.getDeclaredField(name);
-			field.setAccessible(true);
-			return field.get(material);
+			return cachedField(MATERIAL_FIELD_CACHE, Material.class, name, name).get(material);
 		} catch (ReflectiveOperationException ex) {
 			throw new IllegalStateException("Unable to read material property " + name, ex);
 		}
@@ -1199,9 +1218,7 @@ public class ModelExporter extends Overlay implements MouseListener, MouseWheelL
 
 	static Object waterProperty(WaterType water, String name) {
 		try {
-			var field = WaterType.class.getDeclaredField(name);
-			field.setAccessible(true);
-			return field.get(water);
+			return cachedField(WATER_FIELD_CACHE, WaterType.class, name, name).get(water);
 		} catch (ReflectiveOperationException ex) {
 			throw new IllegalStateException("Unable to read water property " + name, ex);
 		}
