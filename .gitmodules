@@ -1,6 +1,7 @@
 [submodule "RLHD"]
 	path = RLHD
-	url = https://github.com/Mark7625/RLHD.git
+	url = https://github.com/117HD/RLHD.git
+    branch = master
 [submodule "Tools/rlawt"]
 	path = Tools/rlawt
 	url = https://github.com/aHooder/rlawt
