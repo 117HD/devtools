@@ -13,6 +13,7 @@ import javax.swing.event.DocumentListener;
 
 /** Searchable multi-selection dialog. Only Done publishes the draft. */
 public final class SelectionModal<T> {
+	private boolean singleChoice;
 	private static final Color SURFACE = new Color(0x262626);
 	private static final Color FOOTER = new Color(0x222222);
 	private static final Color DIVIDER = new Color(0x1E1E1E);
@@ -49,6 +50,8 @@ public final class SelectionModal<T> {
 
 	public SelectionModal<T> rawOption(Function<String, T> factory) { rawOption = factory; return this; }
 	public SelectionModal<T> nearby(Function<T, String> description) { nearby = description; return this; }
+
+	public SelectionModal<T> singleChoice() { singleChoice = true; return this; }
 
 	public SelectionModal<T> rowMeta(Function<T, String> description) { rowMeta = description; return this; }
 
@@ -144,7 +147,13 @@ public final class SelectionModal<T> {
 				@Override protected void paintComponent(Graphics g) {
 					int y = (getHeight() - 14) / 2;
 					g.setColor(checked ? WorkspaceStyle.ACCENT : new Color(0x555555));
-					if (checked) {
+					if (singleChoice) {
+						g.fillOval(0, y, 14, 14);
+						if (checked) {
+							g.setColor(Color.WHITE);
+							g.fillOval(4, y + 4, 6, 6);
+						}
+					} else if (checked) {
 						g.fillRoundRect(0, y, 14, 14, 4, 4);
 						g.setColor(Color.WHITE);
 						g.drawLine(3, y + 7, 6, y + 10);
@@ -268,8 +277,12 @@ public final class SelectionModal<T> {
 		});
 		Consumer<T> toggle = item -> {
 			hover.accept(item);
-			if (!draft.remove(item))
+			if (singleChoice) {
+				draft.clear();
 				draft.add(item);
+			} else if (!draft.remove(item)) {
+				draft.add(item);
+			}
 			if (item.equals(rawOption.apply(search.getText().strip())))
 				search.setText("");
 			refreshSelection[0].run();

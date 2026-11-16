@@ -14,7 +14,7 @@ import rs117.hd.scene.AreaManager;
 import rs117.hd.scene.areas.AABB;
 import rs117.hd.scene.areas.Area;
 
-final class AreaListField extends JPanel {
+public final class AreaListField extends JPanel {
 	private static final MapTileCache MAP = new MapTileCache(() -> SwingUtilities.invokeLater(() -> {
 		for (Window window : Window.getWindows())
 			if (window.isShowing())
@@ -111,6 +111,48 @@ final class AreaListField extends JPanel {
 			});
 	}
 
+	public static JComponent areaCard(Area area,
+		java.util.function.Supplier<net.runelite.cache.region.Position> previewLocation, Consumer<Area> update) {
+		var card = EditorPanels.stack();
+		var map = new AreaMap(true);
+		map.area = area.areaBounds == null ? null : area;
+		map.setPreferredSize(new Dimension(188, 96));
+		map.setMaximumSize(new Dimension(Integer.MAX_VALUE, 96));
+		map.setAlignmentX(LEFT_ALIGNMENT);
+		card.add(map);
+		var header = new JPanel(new BorderLayout(4, 0));
+		header.setOpaque(false);
+		header.setAlignmentX(LEFT_ALIGNMENT);
+		var info = EditorPanels.stack();
+		var name = text(area.name, 11);
+		name.setAlignmentX(LEFT_ALIGNMENT);
+		info.add(name);
+		var detail = text(area.areaBounds == null ? "Applies nowhere until an area is set"
+			: from(area.areaBounds) + " → " + to(area.areaBounds), 10);
+		detail.setForeground(WorkspaceStyle.DIM);
+		detail.setToolTipText(detail.getText());
+		detail.setAlignmentX(LEFT_ALIGNMENT);
+		info.add(detail);
+		header.add(info);
+		header.add(EditorButton.builder().text("Change").icon("map", 14).onClick(() -> chooseArea(card, area, previewLocation.get(), update)).build(), BorderLayout.EAST);
+		card.add(header);
+		return card;
+	}
+
+	private static void chooseArea(JComponent anchor, Area current, net.runelite.cache.region.Position location, Consumer<Area> update) {
+		var choices = Arrays.stream(AreaManager.AREAS).filter(area -> area == Area.NONE || area == Area.ALL || area.areaBounds != null)
+			.sorted(java.util.Comparator.comparing(area -> area.name, String.CASE_INSENSITIVE_ORDER)).collect(java.util.stream.Collectors.toList());
+		var preview = new AreaPreview();
+		preview.showArea(current);
+		new SelectionModal<Area>("Choose area", choices, java.util.Set.of(current), area -> area.name)
+			.singleChoice().badge("A", new Color(0x3F7A6A))
+			.rowMeta(area -> area.areaBounds == null ? "" : size(area.areaBounds))
+			.nearby(area -> location != null && area != Area.ALL && area.containsPoint(location.getX(), location.getY(), location.getZ())
+				? "You are here" : null)
+			.search("Search areas", area -> area.name).preview(preview, preview::showArea)
+			.open(anchor, picked -> picked.stream().findFirst().ifPresent(update));
+	}
+
 	private static JComponent renderAreaRow(Area area) {
 		var row = new JPanel(new BorderLayout(12, 0));
 		row.setOpaque(false);
@@ -150,8 +192,12 @@ final class AreaListField extends JPanel {
 		void showArea(Area area) {
 			var box = area.areaBounds;
 			name.setText(area.name);
-			map.area = area;
+			map.area = box == null ? null : area;
 			map.repaint();
+			if (box == null) {
+				detail.setText(area == Area.ALL ? "Entire world" : "No area");
+				return;
+			}
 			detail.setText("From     " + from(box) + "\nTo       " + to(box) + "\nSize     " + AreaListField.size(box)
 				+ "\nRegions  " + regions(box));
 		}
@@ -182,8 +228,18 @@ final class AreaListField extends JPanel {
 		AreaMap(boolean large) { this.large = large; }
 
 		@Override protected void paintComponent(Graphics graphics) {
-			if (area == null || getWidth() == 0 || getHeight() == 0)
+			if (getWidth() == 0 || getHeight() == 0)
 				return;
+			if (area == null) {
+				graphics.setColor(new Color(0x24282A));
+				graphics.fillRect(0, 0, getWidth(), getHeight());
+				graphics.setColor(new Color(0x303638));
+				for (int x = 0; x < getWidth(); x += 12)
+					graphics.drawLine(x, 0, x, getHeight());
+				for (int y = 0; y < getHeight(); y += 12)
+					graphics.drawLine(0, y, getWidth(), y);
+				return;
+			}
 			var box = area.areaBounds;
 			var g = (Graphics2D) graphics.create();
 			boolean underground = box.minY >= 4000;

@@ -2,15 +2,28 @@ package rs117.hd.dev.editor;
 
 import java.awt.Color;
 import java.awt.Font;
+import javax.swing.BorderFactory;
 import javax.swing.Icon;
 import javax.swing.JLabel;
 import javax.swing.SwingConstants;
+import javax.swing.JTextField;
 import javax.swing.border.Border;
 
 public final class EditorText {
 	private EditorText() {}
 
 	public static Builder builder(String text) { return new Builder(text); }
+
+	public static JTextField propertyField(String text) {
+		var field = new JTextField(text, 16);
+		field.setFont(WorkspaceStyle.MONO);
+		field.setBackground(WorkspaceStyle.INPUT);
+		field.setForeground(WorkspaceStyle.TEXT);
+		field.setCaretColor(WorkspaceStyle.TEXT);
+		field.setBorder(BorderFactory.createCompoundBorder(
+			BorderFactory.createLineBorder(WorkspaceStyle.BORDER), BorderFactory.createEmptyBorder(3, 6, 3, 6)));
+		return field;
+	}
 
 	public static final class Builder {
 		private final String text;

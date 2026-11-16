@@ -17,7 +17,7 @@ public final class WorkspaceActions {
 	private final Supplier<JsonObject> capture;
 	private final java.util.function.Consumer<JsonObject> restore;
 	private final JLabel status;
-	private final Path draft = Path.of(System.getProperty("user.home"), ".runelite", "117hd-devtools", "draft.json");
+	private final Path draft;
 	private final WorkspaceHistory history = new WorkspaceHistory();
 	private final List<Command> commands = new ArrayList<>();
 	private final List<Supplier<List<Command>>> commandSources = new ArrayList<>();
@@ -49,19 +49,18 @@ public final class WorkspaceActions {
 		@Override public String toString() { return group + "    " + label + (keys.isEmpty() ? "" : "    " + keys); }
 	}
 
-	public WorkspaceActions(JFrame owner, Supplier<JsonObject> capture, java.util.function.Consumer<JsonObject> restore, JLabel status) {
+	public WorkspaceActions(JFrame owner, Supplier<JsonObject> capture, java.util.function.Consumer<JsonObject> restore, JLabel status, String draftName) {
 		this.owner = owner;
 		this.capture = capture;
 		this.restore = restore;
 		this.status = status;
-		register("Edit", "Undo", "Ctrl Z", "ctrl Z", () -> jump(history.index() - 1, "Undo"));
-		register("Edit", "Redo", "Ctrl Shift Z", "ctrl shift Z", () -> jump(history.index() + 1, "Redo"));
-		bind("ctrl Y", () -> jump(history.index() + 1, "Redo"), false);
+		this.draft = Path.of(System.getProperty("user.home"), ".runelite", "117hd-devtools", draftName);
+		register("Edit", "Undo", "Ctrl Z", null, this::undo);
+		register("Edit", "Redo", "Ctrl Shift Z", null, this::redo);
 		register("Edit", "Show history", "", null, this::showHistory);
 		register("File", "Autosave draft now", "", null, () -> saveDraft(true));
 		register("File", "Restore autosaved draft", "", null, this::restoreDraft);
-		bind("ctrl K", this::showPalette, true);
-		register("Window", "Keyboard shortcuts", "?", "typed ?", this::showShortcuts);
+		register("Window", "Keyboard shortcuts", "?", null, this::showShortcuts);
 		updateHistory();
 	}
 
@@ -87,6 +86,12 @@ public final class WorkspaceActions {
 		changed |= !before.equals(after);
 		updateHistory();
 	}
+
+	void status(String message) { status.setText(message); }
+
+	void undo() { jump(history.index() - 1, "Undo"); }
+
+	void redo() { jump(history.index() + 1, "Redo"); }
 
 	private void jump(int index, String operation) {
 		if (index < 0 || index >= history.size() || index == history.index())
@@ -230,7 +235,7 @@ public final class WorkspaceActions {
 		menu.add(footer);
 		menu.show(steps, steps.getWidth() - 280, steps.getHeight() + 4);
 	}
-	private void showPalette() {
+	void showPalette() {
 		if (palette != null && palette.isVisible()) {
 			palette.dispose();
 			return;
@@ -470,7 +475,7 @@ public final class WorkspaceActions {
 		return wrapper;
 	}
 
-	private void showShortcuts() {
+	void showShortcuts() {
 		var rows = new JPanel(new net.miginfocom.swing.MigLayout("insets 0px 22px 22px 22px, gap 36px 20px, wrap 2", "[grow,fill][grow,fill]", "[top][top][top]"));
 		rows.setBackground(WorkspaceStyle.MENU);
 		rows.add(shortcutGroup("General", new String[]{"Command search", "Ctrl K"}, new String[]{"Keyboard shortcuts", "?"},

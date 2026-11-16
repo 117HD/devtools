@@ -23,13 +23,15 @@ public final class ToggleList extends JPanel {
 		final boolean value;
 		final boolean changed;
 		final Consumer<Boolean> onChange;
+		final Runnable onReset;
 
-		public Item(String label, boolean value, boolean changed, Consumer<Boolean> onChange) {
+		public Item(String label, boolean value, boolean changed, Consumer<Boolean> onChange, Runnable onReset) {
 			this.label = label;
 			this.normalizedLabel = label.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9]", "");
 			this.value = value;
 			this.changed = changed;
 			this.onChange = onChange;
+			this.onReset = onReset;
 		}
 	}
 
@@ -39,7 +41,11 @@ public final class ToggleList extends JPanel {
 		private final List<Item> items = new java.util.ArrayList<>();
 
 		public Builder add(String label, boolean selected, boolean changed, Consumer<Boolean> action) {
-			items.add(new Item(label, selected, changed, action));
+			return add(label, selected, changed, action, null);
+		}
+
+		public Builder add(String label, boolean selected, boolean changed, Consumer<Boolean> action, Runnable reset) {
+			items.add(new Item(label, selected, changed, action, reset));
 			return this;
 		}
 
@@ -64,16 +70,29 @@ public final class ToggleList extends JPanel {
 		return Math.max(1, (width + 32) / 332);
 	}
 
-	@Override public Dimension getMaximumSize() {
+	private int rowsHeight() {
 		int visible = 0;
 		for (Component child : getComponents())
 			if (child.isVisible())
 				visible++;
-		int columns = columns(getParent() == null ? getWidth() : getParent().getWidth() - getParent().getInsets().left - getParent().getInsets().right);
-		int rows = (visible + columns - 1) / columns;
-		return new Dimension(Integer.MAX_VALUE, Math.max(0, rows * (ROW_HEIGHT + 2) - 2));
+		var parent = getParent();
+		int width = parent == null ? getWidth() : parent.getWidth() - parent.getInsets().left - parent.getInsets().right;
+		int columnCount = columns(width);
+		int rows = (visible + columnCount - 1) / columnCount;
+		return Math.max(0, rows * (ROW_HEIGHT + 2) - 2);
 	}
 
+	@Override public Dimension getPreferredSize() {
+		return new Dimension(super.getPreferredSize().width, rowsHeight());
+	}
+
+	@Override public Dimension getMinimumSize() {
+		return new Dimension(0, rowsHeight());
+	}
+
+	@Override public Dimension getMaximumSize() {
+		return new Dimension(Integer.MAX_VALUE, rowsHeight());
+	}
 	@Override public void doLayout() {
 		var layout = (net.miginfocom.swing.MigLayout) getLayout();
 		int columns = columns(getWidth());
@@ -119,6 +138,7 @@ public final class ToggleList extends JPanel {
 	private static final class Row extends JPanel {
 		private Item item;
 		private final ToggleSwitch toggle;
+		private final JPanel resetSlot;
 		private boolean hover;
 
 		Row(Item item) {
@@ -131,10 +151,14 @@ public final class ToggleList extends JPanel {
 			setToolTipText(item.label);
 
 			toggle = ToggleSwitch.builder().selected(item.value).onChange(value -> this.item.onChange.accept(value)).build();
-			var togglePanel = new JPanel(new GridBagLayout());
+			var togglePanel = new JPanel(new BorderLayout());
+			var reset = PropertyRow.resetButton(item.label, () -> this.item.onReset.run());
+			resetSlot = EditorPanels.centered(reset);
+			resetSlot.setVisible(item.onReset != null && item.changed);
+			togglePanel.add(resetSlot, BorderLayout.WEST);
 			togglePanel.setOpaque(false);
 			togglePanel.setBorder(BorderFactory.createEmptyBorder(0, GUTTER, 0, 0));
-			togglePanel.add(toggle);
+			togglePanel.add(EditorPanels.centered(toggle), BorderLayout.EAST);
 			add(togglePanel, BorderLayout.EAST);
 
 			addMouseListener(new MouseAdapter() {
@@ -150,6 +174,7 @@ public final class ToggleList extends JPanel {
 		void update(Item item) {
 			this.item = item;
 			toggle.setSelected(item.value);
+			resetSlot.setVisible(item.onReset != null && item.changed);
 			repaint();
 		}
 

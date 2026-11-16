@@ -107,14 +107,14 @@ public final class ModelOverridesScreen extends JPanel {
 	private Set<Integer> browserOverrideTargets;
 	private final JPanel variantPanel = new JPanel(new BorderLayout(6, 3));
 	private final JLabel variantLabel = EditorText.builder("").font(WorkspaceStyle.MONO.deriveFont(11f)).build();
-	private volatile double yaw = .55;
-	private volatile double pitch = .30;
-	private volatile double zoom = 1;
-	private volatile Orbit gameCamera = new Orbit(.55, .30, 1);
+	private final EditorPreview modelViewport = EditorPreview.builder().orbit(.55, .30, .1, 12).sky(false).build();
+	private final EditorPreview sceneViewport = EditorPreview.builder().orbit(.55, .30, .25, 3)
+		.objects(() -> showSurroundings).build();
 	private volatile CacheModels.Entry selectedEntity;
 	private volatile Model previewModel;
 	private PreviewFacePicker vanillaFacePicker, overrideFacePicker;
 	private volatile boolean windPreview;
+	private JToggleButton windTestButton;
 	private volatile float[] windPointer;
 	private volatile java.util.Map<Integer, Integer> nearbyObjects = java.util.Map.of();
 
@@ -356,15 +356,14 @@ public final class ModelOverridesScreen extends JPanel {
 					centerPreview.moveDivider(e.getX() - dividerGrabOffset);
 				} else if (previous != null) {
 					orbiting = true;
-					yaw -= (e.getX() - previous.x) * .012;
-					pitch = Math.max(-1.35, Math.min(1.35, pitch + (e.getY() - previous.y) * .012));
+					modelViewport.camera().drag(e.getX() - previous.x, e.getY() - previous.y);
 					previous = e.getPoint();
 				}
 				mouseMoved(e);
 			}
 
 			@Override public void mouseWheelMoved(MouseWheelEvent e) {
-				zoom = Math.max(.1, Math.min(12, zoom * Math.pow(1.1, -e.getPreciseWheelRotation())));
+				modelViewport.camera().scroll(e.getPreciseWheelRotation());
 			}
 		};
 		centerPreview.setFocusable(true);
@@ -1137,10 +1136,14 @@ public final class ModelOverridesScreen extends JPanel {
 			.onToggle(this::setInGameVisible).buildToggle(true);
 		registerKeyboardAction(e -> inGameButton.doClick(), KeyStroke.getKeyStroke("pressed G"), JComponent.WHEN_IN_FOCUSED_WINDOW);
 		var frame = EditorButton.builder().style(WorkspaceStyle.Button.TRIGGER).text("Frame").icon("frame-all", 13)
-			.onClick(() -> { yaw = .55; pitch = .30; zoom = 1; }).build();
+			.onClick(modelViewport.camera()::reset).build();
 
 		toolbar.add(pickColorButton);
 		toolbar.add(inGameButton);
+		windTestButton = EditorButton.builder().style(WorkspaceStyle.Button.TRIGGER).text("Wind test")
+			.tooltip("Animate the override preview using its Wind settings")
+			.onToggle(this::setWindPreview).buildToggle(false);
+		toolbar.add(windTestButton);
 		toolbar.add(frame);
 		return toolbar;
 	}
@@ -1188,16 +1191,6 @@ public final class ModelOverridesScreen extends JPanel {
 		}
 		viewerStage.revalidate();
 		viewerStage.repaint();
-	}
-
-	private static final class Orbit {
-		final double yaw, pitch, zoom;
-
-		Orbit(double yaw, double pitch, double zoom) {
-			this.yaw = yaw;
-			this.pitch = pitch;
-			this.zoom = zoom;
-		}
 	}
 
 	private JComponent inGameViewBody() {
@@ -1260,38 +1253,7 @@ public final class ModelOverridesScreen extends JPanel {
 		gamePreviewBody.add(findingOverlay, "finding");
 		panel.add(gamePreviewBody);
 		dockPreview.setCursor(WorkspaceStyle.cursor("grab"));
-		var mouse = new MouseAdapter() {
-			private Point previous;
-
-			@Override public void mousePressed(MouseEvent e) {
-				if (SwingUtilities.isLeftMouseButton(e))
-					previous = e.getPoint();
-			}
-
-			@Override public void mouseDragged(MouseEvent e) {
-				if (previous == null)
-					return;
-				var camera = gameCamera;
-				gameCamera = new Orbit(camera.yaw - (e.getX() - previous.x) * .012,
-					Math.max(-1.35, Math.min(1.35, camera.pitch + (e.getY() - previous.y) * .012)), camera.zoom);
-				previous = e.getPoint();
-				dockPreview.setCursor(WorkspaceStyle.cursor("orbit"));
-			}
-
-			@Override public void mouseReleased(MouseEvent e) {
-				previous = null;
-				dockPreview.setCursor(WorkspaceStyle.cursor("grab"));
-			}
-
-			@Override public void mouseWheelMoved(MouseWheelEvent e) {
-				var camera = gameCamera;
-				gameCamera = new Orbit(camera.yaw, camera.pitch,
-					Math.max(.25, Math.min(3, camera.zoom * Math.pow(1.1, -e.getPreciseWheelRotation()))));
-			}
-		};
-		dockPreview.addMouseListener(mouse);
-		dockPreview.addMouseMotionListener(mouse);
-		dockPreview.addMouseWheelListener(mouse);
+		sceneViewport.camera().installControls(dockPreview, () -> true);
 		return panel;
 	}
 
@@ -1403,6 +1365,13 @@ public final class ModelOverridesScreen extends JPanel {
 			pending.set(entry);
 	}
 
+	private void setWindPreview(boolean enabled) {
+		windPointer = null;
+		windPreview = enabled;
+		windTestButton.setSelected(enabled);
+		properties.setWindPreviewSelected(enabled);
+	}
+
 	// ---- Properties <-> ModelOverride wiring ----
 
 	private OverrideProperties.Context buildPropertiesContext() {
@@ -1416,8 +1385,7 @@ public final class ModelOverridesScreen extends JPanel {
 			}
 
 			@Override public void setWindPreview(boolean enabled) {
-				windPointer = null;
-				windPreview = enabled;
+				ModelOverridesScreen.this.setWindPreview(enabled);
 			}
 
 			@Override public int[] vanillaTexturePixels(int textureId) {
@@ -1492,9 +1460,11 @@ public final class ModelOverridesScreen extends JPanel {
 			action.run();
 	}
 
-	public void render(HdRuntime runtime, BuiltScene scene, rs117.hd.dev.definitions.DefinitionsScreen definitions)
+	public void render(HdRuntime runtime, BuiltScene scene, rs117.hd.dev.definitions.DefinitionsScreen definitions,
+		rs117.hd.dev.editor.EnvironmentPreview environments)
 		throws InterruptedException {
 		try (var gamevals = runtime.openGamevals()) {
+			environments.load(runtime, gamevals);
 			say("Cache loaded · Select a model");
 			document = new ModelOverrideDocument(runtime.getGson(), modelOverridesFile(), gamevals);
 			SwingUtilities.invokeLater(() -> { refreshBrowserOverrides(); refreshOverrideList(true); });
@@ -1514,10 +1484,11 @@ public final class ModelOverridesScreen extends JPanel {
 			rs117.hd.scene.model_overrides.ModelOverride draft = null;
 			int dirtyPasses = 0;
 			int lastCenterPass = OVERRIDE_PASS;
-			long nextWindFrame = 0;
+			boolean lastPassWasDock = false;
+			long nextWindFrame = 0, nextDockFrame = 0, nextSceneFrame = 0;
 			boolean previousWind = false;
 			float[] windProjection = null;
-			Orbit previousGameCamera = null;
+			PreviewCamera.View previousGameCamera = null;
 			double previousYaw = Double.NaN, previousPitch = Double.NaN, previousZoom = Double.NaN;
 			String previousMode = null, previousShading = null;
 			boolean previousDock = false;
@@ -1553,8 +1524,20 @@ public final class ModelOverridesScreen extends JPanel {
 					if (previewActive && selectedEntity != null)
 						pending.set(selectedEntity);
 				}
+				if (environments.isActive() && water.detach(runtime))
+					runtime.releasePreviewScene(scene);
+				long frameStarted = System.nanoTime();
+				if (environments.render(runtime)) {
+					nextSceneFrame = EditorSession.awaitPreviewFrame(nextSceneFrame, frameStarted);
+					continue;
+				}
+				if (environments.detach(runtime)) {
+					runtime.releasePreviewScene(scene);
+					appliedJson = null;
+				}
+				frameStarted = System.nanoTime();
 				if (water.render(runtime)) {
-					Thread.sleep(33);
+					nextSceneFrame = EditorSession.awaitPreviewFrame(nextSceneFrame, frameStarted);
 					continue;
 				}
 				if (water.detach(runtime)) {
@@ -1597,7 +1580,7 @@ public final class ModelOverridesScreen extends JPanel {
 							targetY = framing[1];
 							modelBottom = (int) Math.ceil(framing[2]);
 							appliedPreset = null;
-							zoom = 1;
+							modelViewport.camera().resetZoom();
 							say(entry.label + " · " + model.getFaceCount() + " faces");
 							SwingUtilities.invokeLater(() -> {
 								if (!previewActive || previewGeneration != generation || selectedEntity != entry || previewModel != model)
@@ -1648,7 +1631,7 @@ public final class ModelOverridesScreen extends JPanel {
 				}
 				var preset = scenePreset;
 				var placement = foundLocation;
-				boolean surroundings = showSurroundings;
+				boolean surroundings = sceneViewport.objectsVisible();
 				if (!dockVisible) {
 					preset = ScenePreset.SKY;
 					placement = null;
@@ -1672,10 +1655,11 @@ public final class ModelOverridesScreen extends JPanel {
 							int x = pos == null ? preset.x : pos.getX();
 							int z = pos == null ? preset.z : pos.getY();
 							int id = renderedEntry.category == CacheModels.Category.Objects ? renderedEntry.id : -1;
-							previewScene = session.buildPreviewScene(x, z, id, placement, surroundings, all);
+							plane = pos == null ? 0 : pos.getZ();
+							previewScene = sceneViewport.loadScene(session, new net.runelite.cache.region.Position(x, z, plane),
+								sceneObjects(id, placement, surroundings, all));
 							tileX = x - previewScene.getBaseX();
 							tileZ = z - previewScene.getBaseY();
-							plane = pos == null ? 0 : pos.getZ();
 							orientation = placement == null ? 0 : placement.getOrientation() * 512;
 							shape = placement == null ? 10 : placement.getType();
 							modelBaseY = previewGroundHeight(previewScene, plane, tileX, tileZ) - GROUND_CLEARANCE - modelBottom;
@@ -1695,7 +1679,6 @@ public final class ModelOverridesScreen extends JPanel {
 						}
 					}
 					runtime.setScene(previewScene);
-					runtime.setLevels(plane, true, false);
 					installedModel = null;
 					previousMode = null;
 				}
@@ -1703,9 +1686,7 @@ public final class ModelOverridesScreen extends JPanel {
 					indexedScene = previewScene;
 					nearbyObjects = indexSceneObjects(previewScene);
 				}
-				double y = yaw;
-				double p = pitch;
-				double currentZoom = zoom;
+				var modelCamera = modelViewport.camera().view();
 				if (renderedEntry == null) {
 					Thread.sleep(16);
 					continue;
@@ -1715,8 +1696,8 @@ public final class ModelOverridesScreen extends JPanel {
 				String centerShading = previewShading;
 				String json = previewOverrideJson;
 				boolean showDock = dockVisible;
-				var dockCamera = gameCamera;
-				boolean cameraChanged = y != previousYaw || p != previousPitch || currentZoom != previousZoom;
+				var dockCamera = sceneViewport.camera().view();
+				boolean cameraChanged = modelCamera.yaw != previousYaw || modelCamera.pitch != previousPitch || modelCamera.zoom != previousZoom;
 				boolean overrideChanged = !java.util.Objects.equals(json, appliedJson);
 				int centerPasses = "Split".equals(mode) ? VANILLA_PASS | OVERRIDE_PASS
 					: "Vanilla".equals(mode) ? VANILLA_PASS : OVERRIDE_PASS;
@@ -1729,9 +1710,9 @@ public final class ModelOverridesScreen extends JPanel {
 				} else if (!showDock) {
 					dirtyPasses &= ~DOCK_PASS;
 				}
-				previousYaw = y;
-				previousPitch = p;
-				previousZoom = currentZoom;
+				previousYaw = modelCamera.yaw;
+				previousPitch = modelCamera.pitch;
+				previousZoom = modelCamera.zoom;
 				previousMode = mode;
 				previousShading = centerShading;
 				previousDock = showDock;
@@ -1764,15 +1745,26 @@ public final class ModelOverridesScreen extends JPanel {
 				if (animateWind != previousWind || animateWind && now >= nextWindFrame)
 					dirtyPasses |= centerPasses & OVERRIDE_PASS;
 				previousWind = animateWind;
+				boolean animateDock = showDock && previewScene != scene && sceneViewport.animationsEnabled();
+				if (!animateDock)
+					sceneViewport.pauseSceneClock();
+				if (animateDock && now >= nextDockFrame)
+					dirtyPasses |= DOCK_PASS;
 
 				int centerDirty = dirtyPasses & centerPasses;
 				if (centerDirty == 0 && (dirtyPasses & DOCK_PASS) == 0) {
-					Thread.sleep(8);
+					long idle = 8_000_000L;
+					if (animateWind)
+						idle = Math.min(idle, nextWindFrame - now);
+					if (animateDock)
+						idle = Math.min(idle, nextDockFrame - now);
+					java.util.concurrent.TimeUnit.NANOSECONDS.sleep(idle);
 					continue;
 				}
-				int pass = centerDirty == 0 ? DOCK_PASS : centerDirty != centerPasses || centerPasses != (VANILLA_PASS | OVERRIDE_PASS)
+				boolean dock = (dirtyPasses & DOCK_PASS) != 0 && (centerDirty == 0 || animateDock && !lastPassWasDock);
+				int pass = dock ? DOCK_PASS : centerDirty != centerPasses || centerPasses != (VANILLA_PASS | OVERRIDE_PASS)
 					? centerDirty : centerPasses ^ lastCenterPass;
-				boolean dock = pass == DOCK_PASS;
+				lastPassWasDock = dock;
 				boolean vanilla = pass == VANILLA_PASS;
 				if (!dock)
 					lastCenterPass = pass;
@@ -1805,7 +1797,7 @@ public final class ModelOverridesScreen extends JPanel {
 					effective = diagnostic;
 				}
 				if (animateWind && pass == OVERRIDE_PASS) {
-					nextWindFrame = now + 33_333_333L;
+					nextWindFrame = EditorSession.nextPreviewFrame(nextWindFrame, now);
 					shown = WindPreview.deform(baseModel, draft, now * 1e-9,
 						windPointer, windProjection, tileX * 128 + 64, modelBaseY, tileZ * 128 + 64, modelBottom);
 				}
@@ -1815,7 +1807,6 @@ public final class ModelOverridesScreen extends JPanel {
 				}
 				int uuid = previewUuid(renderedEntry);
 				runtime.setPreviewOverride(effective != null ? uuid : null, effective);
-				runtime.setPreviewPass(dock, "Wire".equals(shading));
 				var captured = renderedEntry;
 				var plugin = runtime.getPlugin();
 				int modelGroundY = modelBaseY;
@@ -1825,7 +1816,7 @@ public final class ModelOverridesScreen extends JPanel {
 				var modelForPicking = animateWind && pass == OVERRIDE_PASS ? shown : baseModel;
 				float[][] renderedProjection = {null};
 				boolean[] capturedFrame = {false};
-				runtime.nextFrameTo(image -> {
+				java.util.function.Consumer<Image> capture = image -> {
 					if (image == null)
 						return;
 					capturedFrame[0] = true;
@@ -1855,23 +1846,22 @@ public final class ModelOverridesScreen extends JPanel {
 							signalInitialPreviewReady();
 						}
 					});
-				});
+				};
 				if (dock) {
+					nextDockFrame = EditorSession.nextPreviewFrame(nextDockFrame, now);
 					double focusY = modelBaseY + targetY + (effective == null ? 0 : effective.heightOffset);
-					var camera = previewCamera(dockCamera.yaw, dockCamera.pitch, distance / dockCamera.zoom, focusY, previewX, previewZ);
-					if (previewScene == scene)
-						runtime.frameModelPreview(camera, (float) dockCamera.yaw, (float) dockCamera.pitch);
-					else
-						runtime.frame(camera,
-						(float) dockCamera.yaw, (float) dockCamera.pitch);
+					sceneViewport.draw(runtime, plane, dockCamera.orbitAround(previewX, focusY, previewZ, distance),
+						previewScene == scene, false, capture);
 				} else {
-					runtime.frameModelPreview(previewCamera(y, p, distance / currentZoom, modelBaseY + targetY, previewX, previewZ), (float) y, (float) p);
+					modelViewport.draw(runtime, plane, modelCamera.orbitAround(previewX, modelBaseY + targetY, previewZ, distance),
+						true, "Wire".equals(shading), capture);
 				}
 				if (renderedProjection[0] != null)
 					windProjection = renderedProjection[0];
 				if (capturedFrame[0])
 					dirtyPasses &= ~pass;
-				Thread.sleep(4);
+				if (!animateWind && !animateDock)
+					Thread.sleep(4);
 			}
 		} catch (IOException | RuntimeException e) {
 			log.error("Model preview failed", e);
@@ -1956,14 +1946,15 @@ public final class ModelOverridesScreen extends JPanel {
 			Math.min(heights[x][z + 1], heights[x + 1][z + 1]));
 	}
 
-	private static float[] previewCamera(double yaw, double pitch, double distance, double targetY, int x, int z) {
-		return new float[] {
-			(float) (x + Math.sin(yaw) * Math.cos(pitch) * distance),
-			(float) (targetY - Math.sin(pitch) * distance),
-			(float) (z - Math.cos(yaw) * Math.cos(pitch) * distance)
+	private static java.util.function.Predicate<net.runelite.cache.region.Location> sceneObjects(int id,
+		net.runelite.cache.region.Location focus, boolean surroundings, boolean all) {
+		return object -> {
+			if (focus != null && object.getId() == id && object.getPosition().equals(focus.getPosition())
+				&& object.getType() == focus.getType() && object.getOrientation() == focus.getOrientation())
+				return false;
+			return object.getId() == id ? all : surroundings;
 		};
 	}
-
 	private static int previewUuid(CacheModels.Entry entry) {
 		int type = entry.category == CacheModels.Category.NPCs ? ModelHash.TYPE_NPC
 			: entry.category == CacheModels.Category.Graphics ? ModelHash.TYPE_GRAPHICS_OBJECT : ModelHash.TYPE_OBJECT;

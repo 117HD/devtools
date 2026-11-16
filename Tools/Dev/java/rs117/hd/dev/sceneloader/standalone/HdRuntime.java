@@ -67,6 +67,7 @@ public final class HdRuntime {
 	private final Client client;
 	private final InlineClientThread clientThread = new InlineClientThread();
 	private final EventBus eventBus = new EventBus();
+	private final PreviewEnvironmentManager previewEnvironments;
 	private final PreviewDrawManager drawManager = new PreviewDrawManager();
 	private final HdSettings settings;
 
@@ -92,6 +93,7 @@ public final class HdRuntime {
 		var provider = new CacheTextureProvider(defs, textures);
 		clientState = new FakeClient(canvas, provider.asProvider(), new FakeObjects(defs));
 		client = Fake.of(Client.class, clientState);
+		previewEnvironments = new PreviewEnvironmentManager(clientState);
 	}
 
 	public HdPlugin getPlugin() {
@@ -100,6 +102,27 @@ public final class HdRuntime {
 
 	public rs117.hd.scene.GamevalManager.Handle openGamevals() {
 		return injector.getInstance(rs117.hd.scene.GamevalManager.class).obtainHandle();
+	}
+
+	public void setPreviewEnvironment(rs117.hd.scene.environments.Environment draft, String excludedArea, int excludedIndex,
+		java.util.Map<Integer, Integer> varbits, java.util.Map<Integer, Integer> varps) {
+		previewEnvironments.draft = draft;
+		previewEnvironments.excludedArea = excludedArea;
+		previewEnvironments.excludedIndex = excludedIndex;
+		previewEnvironments.varbits = varbits;
+		previewEnvironments.varps = varps;
+	}
+
+	public void setPreviewFocalPoint(float x, float z) {
+		clientState.setPreviewFocalPoint(x, z);
+	}
+
+	public void clearPreviewFocalPoint() {
+		clientState.clearPreviewFocalPoint();
+	}
+
+	public int sceneVariable(boolean varbit, int id) {
+		return varbit ? client.getVarbitValue(id) : client.getVarpValue(id);
 	}
 
 	public Gson getGson() {
@@ -384,18 +407,22 @@ public final class HdRuntime {
 	}
 
 	public void frame(float[] cameraPosition, float yaw, float pitch) {
-		frame(cameraPosition, yaw, pitch, false);
+		frame(cameraPosition, yaw, pitch, false, null, 1);
 	}
 
 	/** Draws the inspected model in the editor's empty preview scene. */
 	public void frameModelPreview(float[] cameraPosition, float yaw, float pitch) {
-		frame(cameraPosition, yaw, pitch, true);
+		frame(cameraPosition, yaw, pitch, true, null, 1);
 	}
 
-	private void frame(float[] cameraPosition, float yaw, float pitch, boolean modelOnly) {
+	public void framePreviewScene(float[] cameraPosition, float yaw, float pitch, int sceneCycle, float projectionZoom) {
+		frame(cameraPosition, yaw, pitch, false, sceneCycle, projectionZoom);
+	}
+
+	private void frame(float[] cameraPosition, float yaw, float pitch, boolean modelOnly, @Nullable Integer sceneCycle, float projectionZoom) {
 		clientThread.runPending();
 		clientState.sizeUi(Math.max(1, canvas.getWidth()), Math.max(1, canvas.getHeight()));
-		clientState.setCamera(cameraPosition, yaw, pitch, level);
+		clientState.setCamera(cameraPosition, yaw, pitch, level, projectionZoom);
 		clientState.tick();
 
 		eventBus.post(new ClientTick());
@@ -431,7 +458,8 @@ public final class HdRuntime {
 
 		if (plugin.sceneViewport != null) {
 			if (!modelOnly)
-				drawDynamics(renderer, projection, scene, minLevel, hiddenRoofs);
+				drawDynamics(renderer, projection, scene, minLevel, hiddenRoofs,
+					sceneCycle == null ? clientState.getGameCycle() : sceneCycle);
 			if (preview != null && projection != null)
 				renderer.drawDynamic(-1, projection, scene, preview.tile, preview.renderable, preview.model, preview.tile instanceof net.runelite.api.GameObject ? ((net.runelite.api.GameObject) preview.tile).getOrientation() : 0,
 					preview.tile.getX(), preview.tile.getZ(), preview.tile.getY());
@@ -497,12 +525,11 @@ public final class HdRuntime {
 
 	private void drawDynamics(
 		Renderer renderer, @Nullable Projection projection, BuiltScene scene,
-		int minLevel, Set<Integer> hiddenRoofs
+		int minLevel, Set<Integer> hiddenRoofs, int cycle
 	) {
 		if (projection == null || scene.getDynamics().isEmpty())
 			return;
 
-		int cycle = clientState.getGameCycle();
 		int[][][] roofs = scene.getRoofs();
 
 		for (var dynamic : scene.getDynamics()) {
@@ -602,6 +629,8 @@ public final class HdRuntime {
 			bind(HdPlugin.class).toInstance(plugin);
 			bind(Client.class).toInstance(client);
 			bind(rs117.hd.scene.ModelOverrideManager.class).toInstance(previewOverrides);
+			if (previewSkyEnabled)
+				bind(rs117.hd.scene.EnvironmentManager.class).toInstance(previewEnvironments);
 			if (previewSkyEnabled)
 				bind(rs117.hd.scene.ProceduralGenerator.class).toInstance(previewTerrain);
 			if (previewSkyEnabled)

@@ -4,6 +4,7 @@ import java.awt.Canvas;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import javax.swing.JWindow;
 import javax.swing.SwingUtilities;
@@ -19,6 +20,21 @@ import rs117.hd.dev.sceneloader.standalone.Textures;
 /** Owns the standalone editor's cache and OpenGL context for the lifetime of its window. */
 @Slf4j
 public final class EditorSession implements AutoCloseable {
+	public static final long PREVIEW_FRAME_NANOS = TimeUnit.SECONDS.toNanos(1) / 50;
+
+	public static long nextPreviewFrame(long previousDeadline, long frameStarted) {
+		// Keep the cadence through minor sleep overruns and reset after a missed frame.
+		long late = frameStarted - previousDeadline;
+		return (previousDeadline != 0 && late >= 0 && late < PREVIEW_FRAME_NANOS ? previousDeadline : frameStarted)
+			+ PREVIEW_FRAME_NANOS;
+	}
+
+	public static long awaitPreviewFrame(long previousDeadline, long frameStarted) throws InterruptedException {
+		long deadline = nextPreviewFrame(previousDeadline, frameStarted);
+		TimeUnit.NANOSECONDS.sleep(deadline - System.nanoTime());
+		return deadline;
+	}
+
 	private final Canvas canvas = new Canvas();
 	private final JWindow renderHost = new JWindow();
 	private final CompletableFuture<Preview> preview = new CompletableFuture<>();
@@ -64,22 +80,30 @@ public final class EditorSession implements AutoCloseable {
 		return definitions.findObjectPlacement(id, active);
 	}
 
-	public BuiltScene buildPreviewScene(int x, int y, int id, net.runelite.cache.region.Location focus, boolean showOthers, boolean showAll) throws IOException {
-		return new SceneBuilder(definitions).buildPreview(x, y, WorldView.TOPLEVEL, location -> {
-			if (focus != null && location.getId() == id && location.getPosition().equals(focus.getPosition())
-				&& location.getType() == focus.getType() && location.getOrientation() == focus.getOrientation())
-				return false;
-			return location.getId() == id ? showAll : showOthers;
-		});
-	}
-
 	public net.runelite.cache.region.Position findWaterPlacement(String name, HdRuntime runtime,
 		java.util.function.BooleanSupplier active) {
 		return definitions.findWaterPlacement(name, runtime.tileOverrides(), runtime.terrain(), active);
 	}
 
-	public BuiltScene buildTerrainPreview(int x, int y, boolean showObjects) throws IOException {
-		return new SceneBuilder(definitions).buildPreview(x, y, WorldView.TOPLEVEL, location -> showObjects);
+	BuiltScene loadPreviewScene(int x, int y, java.util.function.Predicate<net.runelite.cache.region.Location> objects) throws IOException {
+		return new SceneBuilder(definitions).buildPreview(x, y, WorldView.TOPLEVEL, objects);
+	}
+
+	java.util.Map<Integer, Integer> varbitMaximums() throws IOException {
+		var store = definitions.getStore();
+		var configs = store.getIndex(net.runelite.cache.IndexType.CONFIGS);
+		var archive = configs.getArchive(net.runelite.cache.ConfigType.VARBIT.getId());
+		if (archive == null)
+			return java.util.Map.of();
+		var files = archive.getFiles(store.getStorage().loadArchive(archive));
+		var loader = new net.runelite.cache.definitions.loaders.VarbitLoader();
+		var ranges = new java.util.HashMap<Integer, Integer>();
+		for (var file : files.getFiles()) {
+			var def = loader.load(file.getFileId(), file.getContents());
+			int bits = def.getMostSignificantBit() - def.getLeastSignificantBit() + 1;
+			ranges.put(def.getId(), (int) ((1L << Math.max(0, Math.min(bits, 31))) - 1));
+		}
+		return ranges;
 	}
 
 	public void clearPreviewCaches() {

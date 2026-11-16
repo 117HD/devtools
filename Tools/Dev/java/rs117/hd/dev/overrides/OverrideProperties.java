@@ -84,7 +84,6 @@ final class OverrideProperties extends JPanel {
 		String nearbyObject(int id);
 	}
 
-	private static final Color FORM_BACKGROUND = new Color(0x1F1F1F);
 	private static final Color HEADER_BORDER = new Color(0x1A1A1A);
 
 	private final Context context;
@@ -185,9 +184,7 @@ final class OverrideProperties extends JPanel {
 		top.add(header, BorderLayout.NORTH);
 		top.add(filterWrap, BorderLayout.SOUTH);
 
-		sectionsPanel = new SectionsPanel();
-		sectionsPanel.setLayout(new BoxLayout(sectionsPanel, BoxLayout.Y_AXIS));
-		sectionsPanel.setBackground(FORM_BACKGROUND);
+		sectionsPanel = EditorPanels.propertyStack();
 
 		buildSections();
 		for (Section section : sections) {
@@ -198,12 +195,12 @@ final class OverrideProperties extends JPanel {
 		scroll = new EditorScrollPane(sectionsPanel,
 			ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED, ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
 		scroll.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, WorkspaceStyle.MENU));
-		scroll.getViewport().setBackground(FORM_BACKGROUND);
+		scroll.getViewport().setBackground(WorkspaceStyle.INPUT);
 
 		var editor = new JPanel(new BorderLayout());
 		editor.add(top, BorderLayout.NORTH);
 		editor.add(scroll);
-		emptyContent.setBackground(FORM_BACKGROUND);
+		emptyContent.setBackground(WorkspaceStyle.INPUT);
 		var emptyScroll = new EditorScrollPane(emptyContent, ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
 			ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
 		emptyScroll.setBorder(null);
@@ -212,16 +209,6 @@ final class OverrideProperties extends JPanel {
 		pages.add(editor, "editor");
 		add(pages);
 		setEmptyEntity(null, 0);
-	}
-
-	private static final class SectionsPanel extends JPanel implements javax.swing.Scrollable {
-		@Override public Dimension getPreferredScrollableViewportSize() { return getPreferredSize(); }
-		@Override public int getScrollableUnitIncrement(java.awt.Rectangle visible, int orientation, int direction) { return 16; }
-		@Override public int getScrollableBlockIncrement(java.awt.Rectangle visible, int orientation, int direction) {
-			return Math.max(16, visible.height - 16);
-		}
-		@Override public boolean getScrollableTracksViewportWidth() { return true; }
-		@Override public boolean getScrollableTracksViewportHeight() { return false; }
 	}
 
 	void onCreate(Runnable action) { createOverride = action; }
@@ -611,18 +598,6 @@ final class OverrideProperties extends JPanel {
 		return Box.createVerticalStrut(8);
 	}
 
-	private static JTextField plainTextField() {
-		var field = new JTextField();
-		field.setFont(WorkspaceStyle.MONO.deriveFont(11f));
-		field.setBackground(WorkspaceStyle.INPUT);
-		field.setForeground(WorkspaceStyle.TEXT);
-		field.setCaretColor(WorkspaceStyle.TEXT);
-		field.setBorder(BorderFactory.createCompoundBorder(
-			BorderFactory.createLineBorder(WorkspaceStyle.BORDER), BorderFactory.createEmptyBorder(3, 6, 3, 6)));
-		field.setColumns(16);
-		return field;
-	}
-
 	private static void setTextIfChanged(JTextField field, String text) {
 		if (!Objects.equals(field.getText(), text))
 			field.setText(text);
@@ -695,7 +670,7 @@ final class OverrideProperties extends JPanel {
 	private Section buildGeneralSection() {
 		var content = EditorPanels.stack();
 
-		JTextField descriptionField = plainTextField();
+		JTextField descriptionField = EditorText.propertyField("");
 		descriptionField.setFont(WorkspaceStyle.UI);
 		descriptionField.setPreferredSize(new Dimension(descriptionField.getPreferredSize().width, 24));
 		List<String> themeNames = new ArrayList<>();
@@ -1159,15 +1134,22 @@ final class OverrideProperties extends JPanel {
 		return new Section(view, self[0], List.of("Terrain vertex snap", "Vertex snap threshold"));
 	}
 
+	private javax.swing.JToggleButton windPreviewButton;
+
+	void setWindPreviewSelected(boolean enabled) {
+		if (windPreviewButton != null)
+			windPreviewButton.setSelected(enabled);
+	}
+
 	private Section buildWindSection() {
 		var content = EditorPanels.stack();
 		var modeControl = new WindModeDropdown();
 		var modeRow = fieldRow("Mode", modeControl);
 		var modifierField = new WindStrength();
-		var preview = EditorButton.builder().style(WorkspaceStyle.Button.TRIGGER).text("Preview wind")
+		windPreviewButton = EditorButton.builder().style(WorkspaceStyle.Button.TRIGGER).text("Preview wind")
 			.tooltip("Animate the override preview. Move across the grid to simulate a player in Object sway mode.")
 			.onToggle(context::setWindPreview).buildToggle(false);
-		content.add(fieldRow("Viewport", preview));
+		content.add(fieldRow("Viewport", windPreviewButton));
 		content.add(modeRow);
 		content.add(modifierField);
 		var toggles = ToggleList.builder().build();

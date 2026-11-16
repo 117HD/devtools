@@ -191,6 +191,37 @@ public final class ColorPicker extends JPanel {
 
 	public static String hex(Color color) { return String.format("#%06X", color.getRGB() & 0xffffff); }
 
+	public static JButton propertyButton(String tooltip) {
+		var button = EditorButton.builder().style(WorkspaceStyle.Button.TAB).tooltip(tooltip).build();
+		button.setBorder(BorderFactory.createEmptyBorder());
+		button.setHorizontalAlignment(SwingConstants.LEFT);
+		button.setIconTextGap(4);
+		return button;
+	}
+
+	public static void setPropertyColor(JButton button, Color color, boolean explicit) {
+		button.setText(explicit ? hex(color) : "Default");
+		button.setFont(explicit ? WorkspaceStyle.MONO_SEMIBOLD : WorkspaceStyle.UI);
+		button.setIcon(explicit ? swatch(color, 24) : defaultSwatch(color));
+	}
+
+	private static Icon defaultSwatch(Color color) {
+		return new Icon() {
+			private static final int SIZE = 24;
+			@Override public int getIconWidth() { return SIZE; }
+			@Override public int getIconHeight() { return SIZE; }
+			@Override public void paintIcon(Component component, Graphics graphics, int x, int y) {
+				var g = graphics.create(x, y, SIZE, SIZE);
+				g.setColor(color == null ? WorkspaceStyle.PANEL : color);
+				g.fillRect(0, 0, SIZE, SIZE);
+				g.setColor(new Color(0x707070));
+				for (int stripe = 0; stripe < 2 * SIZE; stripe += 4)
+					g.drawLine(stripe - SIZE, SIZE, stripe, 0);
+				g.dispose();
+			}
+		};
+	}
+
 	public static Icon swatch(Color color, int size) {
 		return new Icon() {
 			@Override public int getIconWidth() { return size; }

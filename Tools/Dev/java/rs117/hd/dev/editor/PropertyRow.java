@@ -2,6 +2,7 @@ package rs117.hd.dev.editor;
 
 import java.awt.Color;
 import java.awt.Dimension;
+import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -16,11 +17,17 @@ public final class PropertyRow extends JPanel {
 	private final JLabel label;
 	private final JComponent control;
 	private final Layout layout;
+	private final JButton reset;
 
 	public PropertyRow(String name, JComponent control, Layout layout) {
+		this(name, control, layout, null);
+	}
+
+	public PropertyRow(String name, JComponent control, Layout layout, Runnable onReset) {
 		super(null);
 		this.control = control;
 		this.layout = layout;
+		reset = onReset == null ? null : resetButton(name, onReset);
 		setName("field:" + name);
 		setOpaque(false);
 		setAlignmentX(LEFT_ALIGNMENT);
@@ -33,6 +40,13 @@ public final class PropertyRow extends JPanel {
 		setChanged(false);
 		add(label);
 		add(control);
+		if (reset != null)
+			add(reset);
+	}
+
+	static JButton resetButton(String name, Runnable action) {
+		return EditorButton.builder().style(WorkspaceStyle.Button.TAB).icon("close", 10).size(18, 18)
+			.tooltip("Reset " + name).onClick(action).build();
 	}
 
 	/** A compact fixed-label row for inline cards and nested forms. */
@@ -51,14 +65,22 @@ public final class PropertyRow extends JPanel {
 
 	public void setChanged(boolean changed) {
 		label.setForeground(new Color(changed ? 0xE6E6E6 : 0x9A9A9A));
+		if (reset != null)
+			reset.setVisible(changed);
 	}
 
 	@Override public void doLayout() {
 		int available = Math.max(0, getWidth() - GAP);
-		int labelMinimum = layout == Layout.SIMPLE ? 70 : 90;
-		int desiredControlWidth = layout == Layout.SIMPLE ? CONTROL_WIDTH : Math.round(available * 2.2f / 3.2f);
+		int labelMinimum = layout == Layout.WIDE ? 90 : 70;
+		int desiredControlWidth = layout == Layout.WIDE ? Math.round(available * 2.2f / 3.2f) : CONTROL_WIDTH;
 		int controlWidth = Math.min(desiredControlWidth, Math.max(0, available - labelMinimum));
 		int labelWidth = available - controlWidth;
+		if (reset != null && reset.isVisible()) {
+			var size = reset.getPreferredSize();
+			reset.setBounds(getWidth() - controlWidth - size.width - 4,
+				Math.max(VERTICAL_PADDING, (getHeight() - size.height) / 2), size.width, size.height);
+			labelWidth = Math.max(0, labelWidth - size.width - 4);
+		}
 		label.setBounds(0, VERTICAL_PADDING, labelWidth, label.getPreferredSize().height);
 		control.setBounds(getWidth() - controlWidth, VERTICAL_PADDING, controlWidth, control.getPreferredSize().height);
 	}

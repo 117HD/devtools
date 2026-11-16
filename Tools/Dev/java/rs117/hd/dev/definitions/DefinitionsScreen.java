@@ -64,7 +64,7 @@ public final class DefinitionsScreen extends JPanel {
 	private final DefaultListModel<JsonObject> rows = new DefaultListModel<>();
 	private final JList<JsonObject> list = new JList<>(rows);
 	private final JPanel filters = new JPanel(new BorderLayout());
-	private final JPanel properties = EditorPanels.stack();
+	private final JPanel properties = EditorPanels.propertyStack();
 	private final JPanel selectionHeader = new JPanel(new BorderLayout(10, 0));
 	private final JLabel selectionName = EditorText.builder("").font(WorkspaceStyle.MONO_SEMIBOLD).build();
 	private final JLabel selectionMeta = EditorText.builder("").font(WorkspaceStyle.MONO.deriveFont(10f)).color(WorkspaceStyle.DIM).build();
@@ -114,7 +114,6 @@ public final class DefinitionsScreen extends JPanel {
 		}
 	}
 
-	boolean showWaterObjects() { return showWaterObjects; }
 	boolean isolateWater() { return isolateWater; }
 
 	void showWaterLocation(WaterRequest request, String location) {
@@ -122,67 +121,10 @@ public final class DefinitionsScreen extends JPanel {
 			waterLocation.setText(location);
 	}
 	private volatile boolean waterPreviewVisible;
-	static final class WaterCamera {
-		final float east, north, zoom;
-		WaterCamera(float east, float north, float zoom) {
-			this.east = east;
-			this.north = north;
-			this.zoom = zoom;
-		}
-	}
+	private final EditorPreview waterViewport = EditorPreview.builder().pan(.8, .4, 5)
+		.location(1569, 2799, 0).objects(() -> showWaterObjects && !isolateWater).build();
 
-	private volatile WaterCamera waterCamera = new WaterCamera(0, 0, 1);
-
-	WaterCamera waterCamera() { return waterCamera; }
-
-	private void installWaterCameraControls(JComponent... surfaces) {
-		var mouse = new java.awt.event.MouseAdapter() {
-			private Point prior;
-
-			@Override public void mousePressed(java.awt.event.MouseEvent event) {
-				if (waterPreview == null || !SwingUtilities.isLeftMouseButton(event))
-					return;
-				prior = event.getLocationOnScreen();
-				preview.setCursor(WorkspaceStyle.cursor("orbit"));
-			}
-
-			@Override public void mouseReleased(java.awt.event.MouseEvent event) {
-				if (SwingUtilities.isLeftMouseButton(event)) {
-					prior = null;
-					updateWaterCursor();
-				}
-			}
-
-			@Override public void mouseDragged(java.awt.event.MouseEvent event) {
-				if (prior == null || waterPreview == null)
-					return;
-				var camera = waterCamera;
-				Point current = event.getLocationOnScreen();
-				float scale = 4f / camera.zoom;
-				waterCamera = new WaterCamera(
-					clampPan(camera.east - (current.x - prior.x) * scale),
-					clampPan(camera.north + (current.y - prior.y) * scale), camera.zoom);
-				prior = current;
-			}
-
-			@Override public void mouseWheelMoved(java.awt.event.MouseWheelEvent event) {
-				if (waterPreview == null)
-					return;
-				var camera = waterCamera;
-				float zoom = (float) (camera.zoom * Math.pow(1.16, -event.getPreciseWheelRotation()));
-				waterCamera = new WaterCamera(camera.east, camera.north, Math.max(.4f, Math.min(5f, zoom)));
-				event.consume();
-			}
-		};
-		for (var surface : surfaces) {
-			surface.addMouseListener(mouse);
-			surface.addMouseMotionListener(mouse);
-			surface.addMouseWheelListener(mouse);
-		}
-	}
-
-	private static float clampPan(float offset) { return Math.max(-4096, Math.min(4096, offset)); }
-
+	EditorPreview waterViewport() { return waterViewport; }
 	private void updateWaterCursor() {
 		preview.setCursor(waterPreview == null ? Cursor.getDefaultCursor() : WorkspaceStyle.cursor("grab"));
 	}
@@ -280,7 +222,7 @@ public final class DefinitionsScreen extends JPanel {
 			? "Finding water…" : "Material swatch"));
 		previewControls.add(previewBar);
 		var resetCamera = EditorButton.builder().style(WorkspaceStyle.Button.TAB).icon("frame-all", 12)
-			.tooltip("Reset view · Drag to pan, scroll to zoom").onClick(() -> waterCamera = new WaterCamera(0, 0, 1)).build();
+			.tooltip("Reset view · Drag to pan, scroll to zoom").onClick(() -> waterViewport.camera().reset()).build();
 		var objects = EditorButton.builder().style(WorkspaceStyle.Button.SCENE_TOGGLE)
 			.icon("scene-layers", 12).text("Show objects").buildToggle(false);
 		objects.addActionListener(event -> showWaterObjects = objects.isSelected());
@@ -305,7 +247,7 @@ public final class DefinitionsScreen extends JPanel {
 		previewTitle.setOpaque(true);
 		caption.add(previewTitle);
 		preview.add(caption, BorderLayout.SOUTH);
-		installWaterCameraControls(preview, caption, previewTitle);
+		waterViewport.camera().installControls(preview, () -> waterPreview != null, caption, previewTitle);
 		waterPanel.add(preview);
 		previewCards.add(waterPanel, Type.WATER.name());
 		var groundPanel = new JPanel(new BorderLayout());
@@ -332,10 +274,8 @@ public final class DefinitionsScreen extends JPanel {
 		selectionHeader.setBorder(new EmptyBorder(6, 14, 6, 6));
 		selectionHeader.setPreferredSize(new Dimension(0, 46));
 		right.add(selectionHeader, BorderLayout.NORTH);
-		properties.setBorder(new EmptyBorder(0, 15, 0, 15));
-		properties.setBackground(new Color(0x1F1F1F));
-		properties.setOpaque(true);
-		var propertyScroll = scroll(new PropertiesView(properties));
+		var propertyScroll = scroll(properties);
+		propertyScroll.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, WorkspaceStyle.MENU));
 		propertyScroll.getViewport().setBackground(properties.getBackground());
 		right.add(propertyScroll);
 		var footer = new JPanel(new BorderLayout(6, 6));
@@ -640,9 +580,8 @@ public final class DefinitionsScreen extends JPanel {
 		selectionHeader.add(selectionChip, BorderLayout.WEST);
 		selectionHeader.add(heading);
 		selectionHeader.add(EditorPanels.centered(actions), BorderLayout.EAST);
-		var name = new JTextField(name(item));
-		style(name);
-		var nameRow = new PropertyRow("Name", name, PropertyRow.Layout.WIDE);
+		var name = EditorText.propertyField(name(item));
+		var nameRow = new PropertyRow("Name", name, PropertyRow.Layout.SIMPLE);
 		EditorSearch.onChange(name, value -> {
 			item.addProperty("name", value.strip());
 			changed(item, false);
@@ -652,21 +591,21 @@ public final class DefinitionsScreen extends JPanel {
 		general.add(nameRow);
 		if (type == Type.WATER) {
 			general.add(field(item, "material", "Material", materialPicker(item, "material", false)));
-			for (String key : List.of("flat", "hasFoam", "skipUnderwaterTerrain")) {
-				boolean baseline = Boolean.TRUE.equals(waterDefault(key));
-				var toggle = ToggleSwitch.builder().selected(item.has(key) ? item.get(key).getAsBoolean() : baseline)
-					.onChange(value -> {
-						set(item, key, value == baseline ? null : new JsonPrimitive(value));
-						}).build();
-				var toggleRow = new JPanel(new BorderLayout());
-				toggleRow.setOpaque(false);
-				toggleRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-				toggleRow.setBorder(new EmptyBorder(5, 0, 5, 0));
-				toggleRow.add(EditorText.builder(label(key)).color(WorkspaceStyle.DIM).build());
-				toggleRow.add(toggle, BorderLayout.EAST);
-				toggleRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 34));
-				general.add(toggleRow);
-			}
+			var toggles = ToggleList.builder().build();
+			general.add(toggles);
+			Runnable refreshToggles = () -> {
+				var items = ToggleList.builder();
+				for (String key : List.of("flat", "hasFoam", "skipUnderwaterTerrain")) {
+					boolean baseline = Boolean.TRUE.equals(waterDefault(key));
+					boolean value = item.has(key) ? item.get(key).getAsBoolean() : baseline;
+					items.add(label(key), value, value != baseline,
+						selected -> set(item, key, selected == baseline ? null : new JsonPrimitive(selected)),
+						() -> set(item, key, null));
+				}
+				items.update(toggles);
+			};
+			refreshToggles.run();
+			fieldUpdates.add(refreshToggles);
 		}
 		section("General", general, item, type == Type.WATER ? List.of("name", "material", "flat", "hasFoam", "skipUnderwaterTerrain") : List.of("name"));
 		if (type == Type.WATER) {
@@ -757,19 +696,10 @@ public final class DefinitionsScreen extends JPanel {
 	}
 
 	private JComponent field(JsonObject item, String key, String label, JComponent control) {
-		var content = new JPanel(new BorderLayout(4, 0));
-		content.setOpaque(false);
-		content.add(control);
-		var clear = EditorButton.builder().style(WorkspaceStyle.Button.TAB).icon("close", 10).size(18, 18)
-			.tooltip("Use default").onClick(() -> { set(item, key, null); showProperties(); }).build();
-		clear.setVisible(item.has(key));
-		content.add(clear, BorderLayout.EAST);
-		var row = new PropertyRow(label, content, PropertyRow.Layout.WIDE);
+		var row = new PropertyRow(label, control, PropertyRow.Layout.SIMPLE,
+			() -> { set(item, key, null); showProperties(); });
 		row.setChanged(item.has(key));
-		fieldUpdates.add(() -> {
-			clear.setVisible(item.has(key));
-			row.setChanged(item.has(key));
-		});
+		fieldUpdates.add(() -> row.setChanged(item.has(key)));
 		return row;
 	}
 
@@ -817,13 +747,8 @@ public final class DefinitionsScreen extends JPanel {
 			int hsl = item.has(key) ? item.get(key).getAsInt() : -1;
 			return hsl < 0 ? Color.WHITE : hslColor(hsl);
 		};
-		var button = EditorButton.builder().style(WorkspaceStyle.Button.TAB)
-			.tooltip("Choose " + label(key).toLowerCase(Locale.ROOT)).build();
-		Runnable update = () -> {
-			button.setText(item.has(key) ? hex(current.get()) : "Default");
-			button.setFont(item.has(key) ? WorkspaceStyle.MONO_SEMIBOLD.deriveFont(11f) : WorkspaceStyle.UI);
-			button.setIcon(ColorPicker.swatch(current.get(), 24));
-		};
+		var button = ColorPicker.propertyButton("Choose " + label(key).toLowerCase(Locale.ROOT));
+		Runnable update = () -> ColorPicker.setPropertyColor(button, current.get(), item.has(key));
 		update.run();
 		fieldUpdates.add(update);
 		ColorPicker.builder(button, current).palette("FROM OTHER WATER", () -> waterPalette(item)).onApply(picked -> {
@@ -832,9 +757,6 @@ public final class DefinitionsScreen extends JPanel {
 			if (!next.equals(item.get(key)))
 				set(item, key, next);
 		}).bind();
-		button.setBorder(new EmptyBorder(0, 0, 0, 0));
-		button.setHorizontalAlignment(SwingConstants.LEFT);
-		button.setIconTextGap(4);
 		return button;
 	}
 
@@ -1239,7 +1161,7 @@ public final class DefinitionsScreen extends JPanel {
 		if (!Objects.equals(nextJson, waterPreview == null ? null : waterPreview.json)
 			|| !Objects.equals(originalName, waterPreview == null ? null : waterPreview.originalName)) {
 			if (waterPreview == null || nextJson == null || !Objects.equals(originalName, waterPreview.originalName)) {
-				waterCamera = new WaterCamera(0, 0, 1);
+				waterViewport.camera().reset();
 				waterFrame = null;
 			}
 			waterPreviewMessage = null;

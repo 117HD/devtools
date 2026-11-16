@@ -81,13 +81,16 @@ tasks.register('developerJar', Jar) {
 
 tasks.register('devToolsEditor', JavaExec) {
 	group = 'application'
-	description = 'Opens the standalone 117HD Editor (Model Overrides, plus stub workspaces)'
+	description = 'Opens the standalone 117HD Editor (Model Overrides, Environments and Definitions)'
 	dependsOn tasks.named('developerClasses')
 	classpath = sourceSets.developer.runtimeClasspath
 	mainClass = 'rs117.hd.dev.editor.EditorShell'
 	workingDir = project.rootProject.projectDir
 	jvmArgs '-ea', '-Xmx2G'
 	systemProperty 'rlhd.resource-path', project.file('src/main/resources').absolutePath
+	def environments = rootProject.file('environments.json')
+	if (environments.isFile())
+		systemProperty 'rlhd.environments-path', environments.absolutePath
 	if (project.hasProperty('editorCache'))
 		systemProperty 'rlhd.editor-cache', project.property('editorCache')
 	if (project.hasProperty('editorModel'))

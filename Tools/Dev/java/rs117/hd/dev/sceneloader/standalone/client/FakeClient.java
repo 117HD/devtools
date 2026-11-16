@@ -50,6 +50,7 @@ public final class FakeClient {
 
 	private final float[] camera = new float[3];
 	private float cameraPitch, cameraYaw;
+	private int cameraZoom = ZOOM;
 	private int plane;
 
 	public FakeClient(Canvas canvas, TextureProvider textureProvider, FakeObjects objects) {
@@ -66,10 +67,11 @@ public final class FakeClient {
 		topLevel.scene = scene;
 	}
 
-	public void setCamera(float[] position, float yaw, float pitch, int plane) {
+	public void setCamera(float[] position, float yaw, float pitch, int plane, float projectionZoom) {
 		System.arraycopy(position, 0, camera, 0, 3);
 		cameraYaw = yaw;
 		cameraPitch = pitch;
+		cameraZoom = Math.max(1, Math.round(ZOOM * projectionZoom));
 		this.plane = plane;
 		topLevel.plane = plane;
 	}
@@ -143,7 +145,7 @@ public final class FakeClient {
 	}
 
 	public int get3dZoom() {
-		return ZOOM;
+		return cameraZoom;
 	}
 
 	public int getRasterizer3D_clipNegativeMidX() {
@@ -218,8 +220,31 @@ public final class FakeClient {
 		return (int) camera[2];
 	}
 
+	private java.util.Map<Integer, Integer> environmentVarbits = java.util.Map.of(), environmentVarps = java.util.Map.of();
+	private boolean previewFocus;
+	private float previewFocusX, previewFocusZ;
+
+	public void setEnvironmentTestValues(java.util.Map<Integer, Integer> varbits, java.util.Map<Integer, Integer> varps) {
+		environmentVarbits = varbits;
+		environmentVarps = varps;
+	}
+
+	public int getVarbitValue(int id) { return environmentVarbits.getOrDefault(id, 0); }
+
+	public int getVarpValue(int id) { return environmentVarps.getOrDefault(id, 0); }
+
+	public void setPreviewFocalPoint(float x, float z) {
+		previewFocus = true;
+		previewFocusX = x;
+		previewFocusZ = z;
+	}
+
+	public void clearPreviewFocalPoint() {
+		previewFocus = false;
+	}
+
 	public float getCameraFocalPointX() {
-		return camera[0];
+		return previewFocus ? previewFocusX : camera[0];
 	}
 
 	public float getCameraFocalPointY() {
@@ -227,7 +252,7 @@ public final class FakeClient {
 	}
 
 	public float getCameraFocalPointZ() {
-		return camera[2];
+		return previewFocus ? previewFocusZ : camera[2];
 	}
 
 	public float getCameraFpX() {
