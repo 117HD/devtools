@@ -287,16 +287,15 @@ public class ModelImporter implements KeyListener, AutoCloseable {
 				uvs.add(coordinate);
 			custom.add("uvs", uvs);
 			var materials = new JsonArray();
-			for (String material : counts.keySet()) {
-				if (material.equals(baseMaterial))
-					continue;
-				var faces = new JsonArray();
-				for (int first = 0; first < faceCount; first++) {
-					if (!material.equals(faceMaterials[first]))
-						continue;
-					int last = first;
-					while (last + 1 < faceCount && material.equals(faceMaterials[last + 1]))
-						last++;
+			// Bucket runs by material in a single pass instead of rescanning faceMaterials once per distinct material.
+			var facesByMaterial = new LinkedHashMap<String, JsonArray>();
+			for (int first = 0; first < faceCount; ) {
+				String material = faceMaterials[first];
+				int last = first;
+				while (last + 1 < faceCount && material.equals(faceMaterials[last + 1]))
+					last++;
+				if (!material.equals(baseMaterial)) {
+					var faces = facesByMaterial.computeIfAbsent(material, m -> new JsonArray());
 					String range = first + "-" + last;
 					int separateLength = -2;
 					for (int f = first; f <= last; f++)
@@ -307,11 +306,13 @@ public class ModelImporter implements KeyListener, AutoCloseable {
 						for (int f = first; f <= last; f++)
 							faces.add(f);
 					}
-					first = last;
 				}
+				first = last + 1;
+			}
+			for (var entry : facesByMaterial.entrySet()) {
 				var override = new JsonObject();
-				override.addProperty("material", material);
-				override.add("faces", faces);
+				override.addProperty("material", entry.getKey());
+				override.add("faces", entry.getValue());
 				materials.add(override);
 			}
 			if (materials.size() > 0)
