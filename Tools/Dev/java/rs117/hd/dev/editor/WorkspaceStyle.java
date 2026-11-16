@@ -105,7 +105,7 @@ public final class WorkspaceStyle {
 		});
 	}
 
-	public enum Button { TAB, PRIMARY, SECONDARY, DANGER, TOOL, SEGMENT, TRIGGER, SCENE_TOGGLE, DASHED_ADD }
+	public enum Button { TAB, PRIMARY, SECONDARY, DANGER, TOOL, SEGMENT, TRIGGER, FIELD_TRIGGER, SCENE_TOGGLE, DASHED_ADD }
 
 	private static Font loadFont(String file, int size) {
 		try (InputStream in = WorkspaceStyle.class.getResourceAsStream("/rs117/hd/dev/editor/fonts/" + file + ".ttf")) {
@@ -166,6 +166,12 @@ public final class WorkspaceStyle {
 					case TOOL: background = model.isSelected() ? ACCENT : model.isRollover() ? new Color(0x333333) : null; break;
 					case SEGMENT: background = model.isSelected() ? new Color(0x454545) : model.isRollover() ? HEADER : null; break;
 					case TRIGGER: background = model.isSelected() ? ACCENT : model.isRollover() ? PANEL : MENU; break;
+					case FIELD_TRIGGER:
+						g.setColor(model.isRollover() ? BORDER : GAP);
+						g.fillRoundRect(0, 0, component.getWidth(), component.getHeight(), 6, 6);
+						g.setColor(button.isFocusOwner() ? ACCENT : BORDER);
+						g.drawRoundRect(0, 0, component.getWidth() - 1, component.getHeight() - 1, 6, 6);
+						break;
 				}
 				if (background != null) {
 					g.setColor(background);

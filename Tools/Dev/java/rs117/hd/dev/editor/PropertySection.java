@@ -23,6 +23,7 @@ public final class PropertySection extends JPanel {
 	private final String title;
 	private final JComponent fields;
 	private final JLabel changedBadge;
+	private final JLabel inlineNote;
 	private final JLabel inactiveNote;
 	private final JLabel resetLink;
 	private boolean active = true;
@@ -87,14 +88,15 @@ public final class PropertySection extends JPanel {
 		section.header().remove(titleLabel);
 		var heading = new JPanel(new BorderLayout());
 		heading.setOpaque(false);
-		var titleGroup = new JPanel(new java.awt.GridBagLayout());
+		var titleGroup = new JPanel(new net.miginfocom.swing.MigLayout("insets 0, gap 8 0, fillx, hidemode 3",
+			"[pref!][pref!][0:pref,grow,fill]", "[center]"));
 		titleGroup.setOpaque(false);
-		var cell = new java.awt.GridBagConstraints();
-		cell.gridy = 0;
-		titleGroup.add(titleLabel, cell);
-		cell.insets = new java.awt.Insets(0, 8, 0, 0);
-		titleGroup.add(changedBadge, cell);
-		heading.add(titleGroup, BorderLayout.WEST);
+		titleGroup.add(titleLabel);
+		titleGroup.add(changedBadge);
+		inlineNote = EditorText.builder("").font(WorkspaceStyle.UI.deriveFont(11f)).color(WorkspaceStyle.DIM).build();
+		inlineNote.setVisible(false);
+		titleGroup.add(inlineNote, "wmin 0");
+		heading.add(titleGroup, BorderLayout.CENTER);
 		section.header().add(heading, BorderLayout.CENTER);
 		heading.addMouseListener(new MouseAdapter() {
 			@Override public void mouseClicked(MouseEvent e) {
@@ -111,6 +113,11 @@ public final class PropertySection extends JPanel {
 
 	@Override public java.awt.Dimension getMinimumSize() {
 		return new java.awt.Dimension(0, super.getMinimumSize().height);
+	}
+
+	public void setInlineNote(String text) {
+		inlineNote.setText(text);
+		inlineNote.setVisible(!text.isEmpty());
 	}
 
 	public String title() { return title; }

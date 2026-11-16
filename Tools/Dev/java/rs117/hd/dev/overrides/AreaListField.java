@@ -252,8 +252,7 @@ public final class AreaListField extends JPanel {
 			double centerY = (box.minY + (double) box.maxY + 1) / 2;
 			double left = centerX - getWidth() / (2 * scale);
 			double top = centerY + getHeight() / (2 * scale);
-			if (!underground)
-				drawTiles(g, box.hasZ() ? box.minZ : 0, left, top, scale);
+			drawTiles(g, box.hasZ() ? box.minZ : 0, left, top, scale);
 			for (AABB bounds : area.aabbs) {
 				int x = (int) Math.round((bounds.minX - left) * scale);
 				int y = (int) Math.round((top - bounds.maxY - 1) * scale);

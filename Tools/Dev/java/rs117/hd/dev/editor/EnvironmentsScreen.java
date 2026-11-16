@@ -319,8 +319,8 @@ final class EnvironmentsScreen extends JPanel {
 			origin = viewport.location();
 		var fields = EditorPanels.stack();
 		fields.setBorder(new EmptyBorder(8, 10, 8, 10));
-		var x = NumberField.builder().value((double) origin.getX()).min(0).max(16383).build();
-		var y = NumberField.builder().value((double) origin.getY()).min(0).max(16383).build();
+		var x = EditorText.propertyField(Integer.toString(origin.getX()));
+		var y = EditorText.propertyField(Integer.toString(origin.getY()));
 		var plane = new int[] {origin.getZ()};
 		var planes = SegmentedControl.builder(List.of("0", "1", "2", "3")).values()
 			.selected(Integer.toString(plane[0])).build();
@@ -342,12 +342,32 @@ final class EnvironmentsScreen extends JPanel {
 			scenePosition = null;
 			reloadPreview();
 		})).build());
-		actions.add(EditorButton.builder().text("Load").style(WorkspaceStyle.Button.PRIMARY)
+		var load = EditorButton.builder().text("Load").style(WorkspaceStyle.Button.PRIMARY)
 			.onClick(() -> PopupLayer.select(popup[0], () -> {
-				scenePosition = new Position(x.getValue().intValue(), y.getValue().intValue(), plane[0]);
+				scenePosition = new Position(worldCoordinate(x.getText()), worldCoordinate(y.getText()), plane[0]);
 				reloadPreview();
-			})).build());
+			})).build();
+		Runnable validate = () -> {
+			boolean valid = worldCoordinate(x.getText()) >= 0 && worldCoordinate(y.getText()) >= 0;
+			load.setEnabled(valid);
+			load.setToolTipText(valid ? null : "Enter whole-number coordinates from 0 to 16383");
+		};
+		EditorSearch.onChange(x, value -> validate.run());
+		EditorSearch.onChange(y, value -> validate.run());
+		x.addActionListener(event -> load.doClick());
+		y.addActionListener(event -> load.doClick());
+		validate.run();
+		actions.add(load);
 		popup[0] = PopupLayer.show(sceneOptions, fields, 298);
+	}
+
+	private static int worldCoordinate(String text) {
+		try {
+			int value = Integer.parseInt(text.strip());
+			return value >= 0 && value <= 16383 ? value : -1;
+		} catch (NumberFormatException e) {
+			return -1;
+		}
 	}
 
 	private void setRoofsHidden(boolean hidden) {
@@ -504,8 +524,6 @@ final class EnvironmentsScreen extends JPanel {
 		if (entry != null) {
 			for (var section : SECTIONS) {
 				var fields = EditorPanels.stack();
-				if (section.label.equals("Conditions"))
-					fields.add(label("Both must be true · empty = always", 11, WorkspaceStyle.DIM, false));
 				if (section.label.equals("Lighting"))
 					fields.add(label("Unset ambient is derived from directional", 11, WorkspaceStyle.DIM, false));
 				var switches = new ArrayList<Field>();
@@ -533,6 +551,8 @@ final class EnvironmentsScreen extends JPanel {
 				for (Component child : fields.getComponents())
 					((JComponent) child).setAlignmentX(LEFT_ALIGNMENT);
 				var propertiesSection = new PropertySection(section.label, fields, open -> expanded.put(section.label, open));
+				if (section.label.equals("Conditions"))
+					propertiesSection.setInlineNote("Both must be true · empty = always");
 				propertiesSection.setExpanded(expanded.getOrDefault(section.label, !section.label.equals("Effects")));
 				sections.put(section.label, propertiesSection);
 				properties.add(propertiesSection);
@@ -555,7 +575,10 @@ final class EnvironmentsScreen extends JPanel {
 		var value = entry.get(key);
 		var fallback = document.defaults.get(key);
 		if (field.kind == Kind.CONDITION) {
-			fields.add(label(field.label, 12, WorkspaceStyle.DIM, false));
+			if (!conditions.isEmpty())
+				fields.add(Box.createVerticalStrut(8));
+			fields.add(EditorText.builder(field.label).font(WorkspaceStyle.SEMIBOLD)
+				.border(new EmptyBorder(0, 0, 4, 0)).build());
 			var editor = new ConditionBuilder(key, conditionText(value), gamevals.getOrDefault(key, Map.of()),
 				text -> editField(key, text.isBlank() ? null : new JsonPrimitive(text), false), this::publishRequest);
 			conditions.put(key, editor);
